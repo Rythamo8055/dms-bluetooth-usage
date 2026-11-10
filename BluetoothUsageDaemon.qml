@@ -740,7 +740,10 @@ PluginComponent {
 
         function summary(): string {
             var body = root.summaryText(Date.now());
-            root.sendSummary(body);
+            if (root.sendSummary(body)) {
+                root.store.lastWeeklySummary = Date.now();
+                root.writeNow();
+            }
             return body;
         }
 
