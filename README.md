@@ -39,10 +39,6 @@ glance.
 - **Reconnect grace period**: short A2DP/HFP dropouts are merged into one session.
 - **Local only**: no account, network calls, telemetry or cloud sync.
 
-## Screenshot
-
-![Bluetooth Usage popout](screenshot.png)
-
 ## Requirements
 
 - DankMaterialShell **2.1.0 or newer**
