@@ -697,7 +697,7 @@ PluginComponent {
 
     Process {
         id: summaryProcess
-        command: ["notify-send", "-a", "Bluetooth Usage", "-i", "audio-headset",
+        command: ["dms", "notify", "-a", "Bluetooth Usage", "-i", "audio-headset",
                   "Bluetooth weekly summary", root.summaryBody]
         running: false
         stderr: StdioCollector {}

@@ -1,14 +1,14 @@
 {
     "id": "bluetoothUsage",
     "name": "Bluetooth Usage",
-    "description": "Track how long your Bluetooth audio devices (TWS earbuds, headsets, speakers) stay connected, with daily history and battery status",
+    "description": "Track connected, listening and idle time for Bluetooth audio devices, with per-device history, battery and weekly summaries",
     "version": "1.1.0",
     "license": "MIT",
     "author": "rythamo",
     "icon": "bluetooth",
     "type": "composite",
     "capabilities": ["daemon", "dankbar-widget", "ipc"],
-    "requires": ["pactl", "notify-send"],
+    "dependencies": ["pactl"],
     "components": {
         "daemon": "./BluetoothUsageDaemon.qml",
         "widget": "./BluetoothUsageWidget.qml"
