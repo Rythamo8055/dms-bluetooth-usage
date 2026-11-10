@@ -1,0 +1,43 @@
+name: Validate
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  manifest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate plugin manifest
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          manifest = json.loads(Path("plugin.json").read_text())
+          required = [
+              "id",
+              "name",
+              "description",
+              "version",
+              "author",
+              "type",
+              "capabilities",
+              "components",
+          ]
+          missing = [key for key in required if key not in manifest]
+          if missing:
+              raise SystemExit("missing manifest keys: " + ", ".join(missing))
+
+          if not manifest["id"][:1].islower() or not manifest["id"].isalnum():
+              raise SystemExit("plugin id must be camelCase")
+
+          for surface, relative in manifest["components"].items():
+              path = Path(relative.removeprefix("./"))
+              if not path.is_file():
+                  raise SystemExit(f"missing {surface} component: {path}")
+
+          print("plugin.json is valid")
+          PY
