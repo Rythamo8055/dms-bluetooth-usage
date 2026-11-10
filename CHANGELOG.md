@@ -2,6 +2,14 @@
 
 All notable changes to Bluetooth Usage are documented here.
 
+## 1.1.4 — 2026-11-10
+
+### Fixed
+
+- Refresh the bar clock immediately when the daemon writes a new listening
+  state, so the live listening time appears without waiting for the next
+  minute-aligned update.
+
 ## 1.1.3 — 2026-11-10
 
 ### Changed

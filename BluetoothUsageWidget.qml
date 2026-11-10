@@ -282,6 +282,7 @@ PluginComponent {
             if (parsed && typeof parsed === "object" && parsed.devices) {
                 usage = parsed;
                 usageLoaded = true;
+                advanceClock();
             }
         } catch (error) {
             log.warn("Could not parse usage data:", error);
