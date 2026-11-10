@@ -284,7 +284,7 @@ PluginComponent {
     Timer {
         interval: 1000
         repeat: true
-        running: true
+        running: root.hasConnected
         triggeredOnStart: true
         onTriggered: root.nowMs = Date.now()
     }
@@ -331,7 +331,7 @@ PluginComponent {
 
                 DIcon {
                     name: root.barIcon
-                    size: Theme.iconSize - 6
+                    size: Theme.iconSize - Theme.spacingXS
                     color: root.barAccent
                     anchors.verticalCenter: parent.verticalCenter
                 }
@@ -375,11 +375,11 @@ PluginComponent {
             Column {
                 id: verticalColumn
                 anchors.centerIn: parent
-                spacing: 1
+                spacing: Theme.spacingXXS
 
                 DIcon {
                     name: root.barIcon
-                    size: Theme.iconSize - 6
+                    size: Theme.iconSize - Theme.spacingXS
                     color: root.barAccent
                     anchors.horizontalCenter: parent.horizontalCenter
                 }

@@ -85,7 +85,7 @@ PopoutComponent {
         width: parent.width
         implicitHeight: Math.max(200, root.contentHeight - root.headerHeight - root.detailsHeight - Theme.spacingL)
 
-        Flickable {
+        DFlickable {
             id: flickable
             anchors.fill: parent
             contentWidth: width
@@ -148,7 +148,7 @@ PopoutComponent {
                             text: root.connected
                                 ? BtUsage.duration(root.primaryLive)
                                 : BtUsage.duration(root.todaySeconds)
-                            font.pixelSize: Theme.fontSizeXLarge + 14
+                            font.pixelSize: Theme.fontSizeDisplay
                             font.weight: Theme.fontWeightBold
                             color: root.connected ? Theme.primary : Theme.surfaceText
                         }
@@ -223,7 +223,7 @@ PopoutComponent {
 
                         Item {
                             width: parent.width
-                            height: 78
+                            height: Theme.listItemHeight + Theme.spacingXL
 
                             Row {
                                 anchors.fill: parent
@@ -245,7 +245,7 @@ PopoutComponent {
 
                                         Item {
                                             width: parent.width
-                                            height: 58
+                                            height: Theme.listItemHeight
 
                                             Rectangle {
                                                 anchors.bottom: parent.bottom
@@ -294,9 +294,9 @@ PopoutComponent {
                                 spacing: Theme.spacingXS
 
                                 Rectangle {
-                                    width: 8
-                                    height: 8
-                                    radius: 4
+                                    width: Theme.spacingS
+                                    height: Theme.spacingS
+                                    radius: Theme.spacingXS
                                     color: Theme.withAlpha(Theme.primary, 0.45)
                                     anchors.verticalCenter: parent.verticalCenter
                                 }
@@ -313,9 +313,9 @@ PopoutComponent {
                                 spacing: Theme.spacingXS
 
                                 Rectangle {
-                                    width: 8
-                                    height: 8
-                                    radius: 4
+                                    width: Theme.spacingS
+                                    height: Theme.spacingS
+                                    radius: Theme.spacingXS
                                     color: Theme.primary
                                     anchors.verticalCenter: parent.verticalCenter
                                 }
@@ -348,7 +348,7 @@ PopoutComponent {
                         id: deviceCard
 
                         width: contentColumn.width
-                        height: 88
+                        height: Theme.listItemHeight + Theme.spacingXL + Theme.spacingS
                         radius: Theme.cornerRadius
                         color: deviceCard.isLive ? Theme.surfaceContainerHigh : Theme.surfaceContainer
                         border.width: deviceCard.isLive ? 1 : 0
@@ -372,7 +372,7 @@ PopoutComponent {
                             spacing: Theme.spacingM
 
                             Item {
-                                width: 32
+                                width: Theme.iconSize + Theme.spacingS
                                 height: cardRow.height
 
                                 DIcon {
@@ -384,9 +384,9 @@ PopoutComponent {
                             }
 
                             Column {
-                                width: cardRow.width - 32 - statsColumn.width - cardRow.spacing * 2
+                                width: cardRow.width - (Theme.iconSize + Theme.spacingS) - statsColumn.width - cardRow.spacing * 2
                                 anchors.verticalCenter: parent.verticalCenter
-                                spacing: 2
+                                spacing: Theme.spacingXXS
 
                                 StyledText {
                                     width: parent.width

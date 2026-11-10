@@ -30,6 +30,8 @@ PluginComponent {
     property bool audioProbeAvailable: false
     property bool audioProbeInFlight: false
     property double audioProbeStartedAt: 0
+    property bool audioSubscribeFailed: false
+    property bool trackedConnected: false
     property bool probeErrorLogged: false
     property string summaryBody: ""
     property double lastHeartbeat: 0
@@ -241,7 +243,7 @@ PluginComponent {
         return seconds;
     }
 
-    function closeSession(record, endAt, now) {
+    function closeSession(record, endAt, now, silent) {
         var start = record.activeStart;
         if (!start) {
             record.activeStart = 0;
@@ -275,7 +277,7 @@ PluginComponent {
         record.lastSeen = end;
         record.lastDisconnected = end;
 
-        if (notifyOnDisconnect && seconds > 0) {
+        if (notifyOnDisconnect && seconds > 0 && !silent) {
             ToastService.showInfo(I18n.trFor("bluetoothUsage", "Bluetooth disconnected"),
                                   record.name + " \u00b7 " + BtUsage.duration(seconds));
         }
@@ -291,6 +293,37 @@ PluginComponent {
         lastHeartbeat = Date.now();
     }
 
+    // A session that was left open across a shutdown must not count the
+    // downtime as connected time. Close it at its last heartbeat and let the
+    // normal connection pass open a fresh session if the device is still here.
+    function reconcileStaleSessions(now) {
+        var dirty = false;
+        var threshold = now - graceSeconds * 1000;
+        for (var address in store.devices) {
+            var record = store.devices[address];
+            if (!record || !record.activeStart)
+                continue;
+            if (pendingDisconnects[address])
+                continue;
+            var lastSeen = record.lastSeen > 0 ? record.lastSeen : record.activeStart;
+            if (lastSeen > 0 && lastSeen < threshold) {
+                closeSession(record, lastSeen, now, true);
+                dirty = true;
+            }
+        }
+        return dirty;
+    }
+
+    function refreshSinks() {
+        if (!storeLoaded || !trackedConnected)
+            return;
+        if (audioProbe.running || audioProbeInFlight)
+            return;
+        audioProbeInFlight = true;
+        audioProbeStartedAt = Date.now();
+        audioProbe.running = true;
+    }
+
     function tick() {
         if (!storeLoaded)
             return;
@@ -298,8 +331,11 @@ PluginComponent {
         checkReset();
 
         var now = Date.now();
+        var dirty = reconcileStaleSessions(now);
         var adapter = BluetoothService.adapter;
         if (!adapter) {
+            if (dirty)
+                writeNow();
             firstTick = false;
             return;
         }
@@ -309,7 +345,12 @@ PluginComponent {
         for (var i = 0; i < devices.length; i++)
             connectedByKey[deviceKey(devices[i])] = devices[i];
 
-        var dirty = false;
+        var wasTrackedConnected = trackedConnected;
+        trackedConnected = Object.keys(connectedByKey).length > 0;
+        if (trackedConnected && !wasTrackedConnected)
+            refreshSinks();
+        else if (!trackedConnected)
+            playingAddresses = ({});
 
         // Existing sessions: keep them alive, or close them after the grace
         // period once the device has really disconnected.
@@ -396,14 +437,19 @@ PluginComponent {
         // Heartbeat: lets a later start tell when the device was last seen,
         // even if DMS was restarted or the machine went down mid-session.
         if (now - lastHeartbeat >= 30000) {
+            var hasActiveSession = false;
             for (var activeAddress in store.devices) {
-                if (store.devices[activeAddress].activeStart)
+                if (store.devices[activeAddress].activeStart) {
                     store.devices[activeAddress].lastSeen = now;
+                    hasActiveSession = true;
+                }
                 if (store.devices[activeAddress].playingStart)
                     store.devices[activeAddress].lastPlayingSeen = now;
             }
-            lastHeartbeat = now;
-            dirty = true;
+            if (hasActiveSession) {
+                lastHeartbeat = now;
+                dirty = true;
+            }
         }
 
         if (dirty)
@@ -641,24 +687,58 @@ PluginComponent {
         onTriggered: root.tick()
     }
 
-    // One `pactl` call covers both sinks and sink-inputs. A Bluetooth sink is
-    // "listening" only when an uncorked, unmuted stream is routed to it.
+    // One `pactl -f json list` call covers both sinks and sink-inputs. A
+    // Bluetooth sink is "listening" only when an uncorked, unmuted stream is
+    // routed to it. The probe runs on connect and on pactl events, not on a
+    // permanent poll; `pactl subscribe` is only alive while a device is here.
     Timer {
-        id: audioProbeTimer
-        interval: 2000
+        id: audioRefreshTimer
+        interval: 350
+        repeat: false
+        onTriggered: root.refreshSinks()
+    }
+
+    Timer {
+        id: audioFallbackTimer
+        interval: 5000
         repeat: true
-        running: root.storeLoaded
+        running: root.storeLoaded && root.trackedConnected && root.audioSubscribeFailed
+        onTriggered: root.refreshSinks()
+    }
+
+    Timer {
+        id: audioWatchdogTimer
+        interval: 5000
+        repeat: true
+        running: root.trackedConnected
         onTriggered: {
             if (root.audioProbeInFlight && root.audioProbeStartedAt > 0
-                    && Date.now() - root.audioProbeStartedAt > 10000) {
+                    && Date.now() - root.audioProbeStartedAt > 12000) {
                 root.audioProbeInFlight = false;
                 audioProbe.running = false;
+                root.refreshSinks();
             }
-            if (!root.audioProbeInFlight) {
-                root.audioProbeInFlight = true;
-                root.audioProbeStartedAt = Date.now();
-                audioProbe.running = true;
+        }
+    }
+
+    Process {
+        id: audioEvents
+        command: ["pactl", "subscribe"]
+        running: root.storeLoaded && root.trackedConnected
+        stdout: SplitParser {
+            splitMarker: "\n"
+            onRead: line => {
+                // Ignore client events caused by our own probe/subscribe
+                // clients; only stream/sink changes matter for listening state.
+                if (line.indexOf("sink-input") !== -1 || line.indexOf("on sink") !== -1)
+                    root.audioRefreshTimer.restart();
             }
+        }
+        stderr: StdioCollector {}
+        onStarted: root.audioSubscribeFailed = false
+        onExited: (exitCode, exitStatus) => {
+            if (root.trackedConnected)
+                root.audioSubscribeFailed = true;
         }
     }
 

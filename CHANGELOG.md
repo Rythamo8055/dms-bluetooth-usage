@@ -2,6 +2,20 @@
 
 All notable changes to Bluetooth Usage are documented here.
 
+## 1.1.1 — 2026-11-10
+
+### Fixed
+
+- Listening detection no longer polls `pactl` while no Bluetooth audio device is
+  connected. The daemon now uses `pactl subscribe` and refreshes only on relevant
+  stream/sink events, with a throttled fallback.
+- The state file is no longer rewritten every 30 seconds when no session is open.
+- The bar's one-second live timer only runs while a device is connected.
+- Open sessions left behind by a shutdown are closed at their last heartbeat
+  instead of counting the whole downtime as connected/listening time.
+- Replaced hard-coded pixel sizes with Theme tokens and the raw `Flickable` with
+  `DFlickable`.
+
 ## 1.1.0 — 2026-11-10
 
 ### Added
