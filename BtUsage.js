@@ -21,7 +21,7 @@ function nextDayStart(ms) {
 
 // Human readable duration. Under a minute we show seconds so a fresh
 // connection still gives feedback in the bar.
-function duration(seconds, compact) {
+function duration(seconds) {
     seconds = Math.max(0, Math.round(Number(seconds) || 0));
     if (seconds < 60)
         return seconds + "s";
@@ -37,21 +37,6 @@ function duration(seconds, compact) {
     return minutes + "m";
 }
 
-function durationLong(seconds) {
-    seconds = Math.max(0, Math.round(Number(seconds) || 0));
-    if (seconds < 60)
-        return seconds + (seconds === 1 ? " second" : " seconds");
-
-    var minutes = Math.floor(seconds / 60);
-    var hours = Math.floor(minutes / 60);
-    var days = Math.floor(hours / 24);
-
-    if (days > 0)
-        return days + "d " + (hours % 24) + "h";
-    if (hours > 0)
-        return hours + "h " + (minutes % 60) + "m";
-    return minutes + (minutes === 1 ? " minute" : " minutes");
-}
 
 function liveSeconds(record, now) {
     if (!record || !record.activeStart)
@@ -119,28 +104,11 @@ function idleTotal(record, now) {
     return Math.max(0, totalSeconds(record, now) - playingTotal(record, now));
 }
 
-function lastSessionSeconds(record) {
-    if (!record)
-        return 0;
-    if (record.activeStart)
-        return liveSeconds(record, Date.now());
-    return record.lastSessionSeconds || 0;
-}
 
-function batteryPercent(record) {
-    if (!record || record.battery === undefined || record.battery < 0)
-        return null;
-    return Math.round(record.battery);
-}
 
-// Aggregate day buckets for the trailing week, oldest first.
-function weekDays(devices, now) {
-    return buildWeek(devices, now, true);
-}
-
-// Same as weekDays but without the currently running session. Useful when
-// the UI wants to add the live seconds itself so the chart and the "today"
-// total never disagree.
+// Aggregate day buckets for the trailing week, oldest first, without the
+// currently running session. The UI adds the live seconds itself so the chart
+// and the "today" total never disagree.
 function weekDaysStored(devices, now) {
     return buildWeek(devices, now, false);
 }
@@ -179,13 +147,6 @@ function buildWeek(devices, now, includeLive) {
     return result;
 }
 
-function weekTotal(devices, now) {
-    var days = weekDays(devices, now);
-    var total = 0;
-    for (var i = 0; i < days.length; i++)
-        total += days[i].seconds;
-    return total;
-}
 
 function relativeTime(timestamp, now) {
     if (!timestamp || timestamp <= 0)
