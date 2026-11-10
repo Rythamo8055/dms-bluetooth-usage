@@ -21,7 +21,6 @@ PluginComponent {
         devices: {}
     })
     property bool usageLoaded: false
-    property bool usageFileMissing: false
     property double nowMs: Date.now()
 
     readonly property bool trackAllDevices: pluginData.trackAllDevices === true
@@ -274,7 +273,6 @@ PluginComponent {
             if (parsed && typeof parsed === "object" && parsed.devices) {
                 usage = parsed;
                 usageLoaded = true;
-                usageFileMissing = false;
             }
         } catch (error) {
             log.warn("Could not parse usage data:", error);
@@ -296,13 +294,6 @@ PluginComponent {
         onTriggered: root.todayKey = BtUsage.dateKey(Date.now())
     }
 
-    Timer {
-        interval: 3000
-        repeat: true
-        running: root.usageFileMissing
-        onTriggered: usageFile.reload()
-    }
-
     FileView {
         id: usageFile
         path: root.statePath
@@ -311,9 +302,7 @@ PluginComponent {
         printErrors: false
         onLoaded: root.applyUsage(usageFile.text())
         onFileChanged: usageFile.reload()
-        onLoadFailed: error => {
-            root.usageFileMissing = true;
-        }
+        onLoadFailed: error => {}
     }
 
     horizontalBarPill: Component {

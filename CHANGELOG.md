@@ -2,6 +2,18 @@
 
 All notable changes to Bluetooth Usage are documented here.
 
+## 1.1.2 — 2026-11-10
+
+### Fixed
+
+- Fixed the `pactl subscribe` event handler so listening-state changes after the
+  first probe are picked up.
+- The daemon no longer polls `BluetoothService` on a permanent 2-second timer;
+  reactive connect/disconnect signals drive it, and the timer only runs while a
+  session or a disconnect grace period is open.
+- The initial state file is written on first load, so the widget no longer needs
+  to retry a missing file.
+
 ## 1.1.1 — 2026-11-10
 
 ### Fixed

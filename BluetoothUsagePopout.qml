@@ -106,7 +106,7 @@ PopoutComponent {
                     color: root.connected
                         ? Theme.surfaceContainerHigh
                         : Theme.surfaceContainer
-                    border.width: root.connected ? 1 : 0
+                    border.width: root.connected ? Theme.outlineWidth : 0
                     border.color: Theme.withAlpha(Theme.primary, 0.25)
 
                     Column {
@@ -258,7 +258,7 @@ PopoutComponent {
                                             Rectangle {
                                                 anchors.bottom: parent.bottom
                                                 width: parent.width
-                                                height: Math.max(dayColumn.connectedSeconds > 0 ? 3 : 0,
+                                                height: Math.max(dayColumn.connectedSeconds > 0 ? Theme.spacingXXS : 0,
                                                                  (dayColumn.connectedSeconds / root.weekMax) * parent.height)
                                                 radius: Theme.cornerRadiusSmall
                                                 color: Theme.withAlpha(Theme.primary, modelData.isToday ? 0.45 : 0.28)
@@ -267,7 +267,7 @@ PopoutComponent {
                                             Rectangle {
                                                 anchors.bottom: parent.bottom
                                                 width: parent.width
-                                                height: Math.max(dayColumn.playingSeconds > 0 ? 3 : 0,
+                                                height: Math.max(dayColumn.playingSeconds > 0 ? Theme.spacingXXS : 0,
                                                                  (dayColumn.playingSeconds / root.weekMax) * parent.height)
                                                 radius: Theme.cornerRadiusSmall
                                                 color: modelData.isToday ? Theme.primary : Theme.withAlpha(Theme.primary, 0.8)
@@ -351,7 +351,7 @@ PopoutComponent {
                         height: Theme.listItemHeight + Theme.spacingXL + Theme.spacingS
                         radius: Theme.cornerRadius
                         color: deviceCard.isLive ? Theme.surfaceContainerHigh : Theme.surfaceContainer
-                        border.width: deviceCard.isLive ? 1 : 0
+                        border.width: deviceCard.isLive ? Theme.outlineWidth : 0
                         border.color: Theme.withAlpha(Theme.primary, 0.2)
 
                         readonly property bool isLive: root.pluginRoot ? root.pluginRoot.isConnectedByAddress(modelData.address) : false

@@ -32,6 +32,7 @@ PluginComponent {
     property double audioProbeStartedAt: 0
     property bool audioSubscribeFailed: false
     property bool trackedConnected: false
+    property bool needsTick: false
     property bool probeErrorLogged: false
     property string summaryBody: ""
     property double lastHeartbeat: 0
@@ -114,6 +115,7 @@ PluginComponent {
         if (!parsed || typeof parsed !== "object" || !parsed.devices) {
             store = blankStore();
             storeLoaded = true;
+            writeNow();
             return;
         }
 
@@ -324,6 +326,19 @@ PluginComponent {
         audioProbe.running = true;
     }
 
+    function updateNeedsTick() {
+        var needed = false;
+        for (var address in store.devices) {
+            if (store.devices[address].activeStart) {
+                needed = true;
+                break;
+            }
+        }
+        if (!needed && Object.keys(pendingDisconnects).length > 0)
+            needed = true;
+        needsTick = needed;
+    }
+
     function tick() {
         if (!storeLoaded)
             return;
@@ -336,6 +351,7 @@ PluginComponent {
         if (!adapter) {
             if (dirty)
                 writeNow();
+            updateNeedsTick();
             firstTick = false;
             return;
         }
@@ -455,6 +471,7 @@ PluginComponent {
         if (dirty)
             writeNow();
 
+        updateNeedsTick();
         firstTick = false;
     }
 
@@ -488,6 +505,7 @@ PluginComponent {
         pendingDisconnects = {};
         lastHeartbeat = now;
         writeNow();
+        needsTick = Object.keys(devices).length > 0;
         ToastService.showInfo(I18n.trFor("bluetoothUsage", "Bluetooth usage cleared"));
     }
 
@@ -682,9 +700,26 @@ PluginComponent {
         id: tickTimer
         interval: 2000
         repeat: true
-        running: root.storeLoaded
-        triggeredOnStart: true
+        running: root.storeLoaded && root.needsTick
         onTriggered: root.tick()
+    }
+
+    // Kick the first evaluation once the store is loaded; after that,
+    // BluetoothService signals drive connect/disconnect and the tick timer
+    // only runs while a session or a disconnect grace period is alive.
+    Timer {
+        id: startupTickTimer
+        interval: 700
+        repeat: false
+        running: root.storeLoaded
+        onTriggered: root.tick()
+    }
+
+    Connections {
+        target: BluetoothService
+        function onConnectedChanged() { root.tick(); }
+        function onHasConnectedAudioDeviceChanged() { root.tick(); }
+        function onAdapterChanged() { root.tick(); }
     }
 
     // One `pactl -f json list` call covers both sinks and sink-inputs. A
@@ -731,7 +766,7 @@ PluginComponent {
                 // Ignore client events caused by our own probe/subscribe
                 // clients; only stream/sink changes matter for listening state.
                 if (line.indexOf("sink-input") !== -1 || line.indexOf("on sink") !== -1)
-                    root.audioRefreshTimer.restart();
+                    audioRefreshTimer.restart();
             }
         }
         stderr: StdioCollector {}
@@ -802,6 +837,7 @@ PluginComponent {
             if (!root.storeLoaded) {
                 root.store = root.blankStore();
                 root.storeLoaded = true;
+                root.writeNow();
             }
         }
     }
@@ -845,6 +881,7 @@ PluginComponent {
             } else {
                 store = blankStore();
                 storeLoaded = true;
+                writeNow();
             }
         }
         lastResetAt = Number(pluginData.resetAt || 0);
@@ -854,6 +891,8 @@ PluginComponent {
     onPluginDataChanged: {
         checkReset();
         checkWeeklySummary();
+        if (storeLoaded)
+            tick();
     }
 
     Component.onDestruction: {
