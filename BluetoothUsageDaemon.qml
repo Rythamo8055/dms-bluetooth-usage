@@ -1,5 +1,6 @@
 import QtCore
 import QtQuick
+import QtQml.Models
 import Quickshell
 import Quickshell.Io
 import qs.Common
@@ -33,6 +34,8 @@ PluginComponent {
     property bool audioSubscribeFailed: false
     property bool trackedConnected: false
     property bool needsTick: false
+    property int pendingCount: 0
+    property var seenConnected: ({})
     property bool probeErrorLogged: false
     property string summaryBody: ""
     property double lastHeartbeat: 0
@@ -323,6 +326,7 @@ PluginComponent {
             return;
         audioProbeInFlight = true;
         audioProbeStartedAt = Date.now();
+        audioProbeTimeout.restart();
         audioProbe.running = true;
     }
 
@@ -334,7 +338,8 @@ PluginComponent {
                 break;
             }
         }
-        if (!needed && Object.keys(pendingDisconnects).length > 0)
+        pendingCount = Object.keys(pendingDisconnects).length;
+        if (!needed && pendingCount > 0)
             needed = true;
         needsTick = needed;
     }
@@ -378,6 +383,7 @@ PluginComponent {
             var liveDevice = connectedByKey[address];
             var isPlaying = audioProbeAvailable && playingAddresses[address] === true;
             if (liveDevice) {
+                seenConnected[address] = true;
                 record.lastSeen = now;
                 record.name = displayName(liveDevice);
                 record.icon = BluetoothService.getDeviceIcon(liveDevice);
@@ -401,6 +407,16 @@ PluginComponent {
                     }
                 }
             } else {
+                // A live disconnect should end at the signal time; a stale
+                // one (resume/shutdown) keeps its last heartbeat to avoid
+                // counting downtime.
+                if (seenConnected[address]) {
+                    if (now - (record.lastSeen || now) <= Math.max(graceSeconds * 1000, 35000))
+                        record.lastSeen = now;
+                    delete seenConnected[address];
+                    dirty = true;
+                }
+
                 if (record.playingStart) {
                     closePlaying(record, record.lastPlayingSeen || record.lastSeen || now, now);
                     dirty = true;
@@ -503,6 +519,7 @@ PluginComponent {
             devices: devices
         };
         pendingDisconnects = {};
+        seenConnected = ({});
         lastHeartbeat = now;
         writeNow();
         needsTick = Object.keys(devices).length > 0;
@@ -595,6 +612,7 @@ PluginComponent {
         playingAddresses = playing;
         audioProbeAvailable = true;
         probeErrorLogged = false;
+        tick();
     }
 
     // ------------------------------------------------------------------
@@ -698,7 +716,9 @@ PluginComponent {
 
     Timer {
         id: tickTimer
-        interval: 2000
+        // Heartbeat while a session is open; short ticks only while a
+        // disconnect grace period is pending.
+        interval: root.pendingCount > 0 ? 2000 : 30000
         repeat: true
         running: root.storeLoaded && root.needsTick
         onTriggered: root.tick()
@@ -722,6 +742,18 @@ PluginComponent {
         function onAdapterChanged() { root.tick(); }
     }
 
+    // Per-device signals catch a second device connecting while another one
+    // stays connected, where the aggregate BluetoothService.connected boolean
+    // does not change.
+    Instantiator {
+        model: BluetoothService.adapter ? BluetoothService.adapter.devices : null
+        delegate: Connections {
+            required property var modelData
+            target: modelData
+            function onConnectedChanged() { root.tick(); }
+        }
+    }
+
     // One `pactl -f json list` call covers both sinks and sink-inputs. A
     // Bluetooth sink is "listening" only when an uncorked, unmuted stream is
     // routed to it. The probe runs on connect and on pactl events, not on a
@@ -742,13 +774,11 @@ PluginComponent {
     }
 
     Timer {
-        id: audioWatchdogTimer
-        interval: 5000
-        repeat: true
-        running: root.trackedConnected
+        id: audioProbeTimeout
+        interval: 12000
+        repeat: false
         onTriggered: {
-            if (root.audioProbeInFlight && root.audioProbeStartedAt > 0
-                    && Date.now() - root.audioProbeStartedAt > 12000) {
+            if (root.audioProbeInFlight) {
                 root.audioProbeInFlight = false;
                 audioProbe.running = false;
                 root.refreshSinks();
@@ -786,6 +816,7 @@ PluginComponent {
         }
         stderr: StdioCollector {}
         onExited: (exitCode, exitStatus) => {
+            audioProbeTimeout.stop();
             root.audioProbeInFlight = false;
             if (exitCode !== 0 && !root.probeErrorLogged) {
                 root.probeErrorLogged = true;

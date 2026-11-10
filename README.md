@@ -100,10 +100,11 @@ systemctl --user restart dms
 
 The plugin has two surfaces:
 
-- **Daemon** (`BluetoothUsageDaemon.qml`) watches `BluetoothService` every two
-  seconds for connect/disconnect changes and records sessions. It samples
-  `pactl -f json list` to detect whether an uncorked, unmuted stream is routed to
-  the device's Bluetooth sink.
+- **Daemon** (`BluetoothUsageDaemon.qml`) reacts to `BluetoothService` and device
+  connect/disconnect signals, records sessions, and uses a 30-second heartbeat
+  while a session is open. It samples `pactl -f json list` on connect and on
+  `pactl subscribe` stream/sink events to detect whether an uncorked, unmuted
+  stream is routed to the device's Bluetooth sink.
 - **Widget** (`BluetoothUsageWidget.qml`) reads the local state file and adds the
   currently running session on top for live display. The popout is in
   `BluetoothUsagePopout.qml`, settings in `BluetoothUsageSettings.qml`.
@@ -151,7 +152,7 @@ dms ipc call btUsage clear     # wipe all statistics
   first enabled. Earlier usage cannot be reconstructed.
 - "Listening" means an uncorked, unmuted stream is routed to the device's
   Bluetooth sink. A stream that outputs silence still counts as listening.
-- Sessions shorter than the two-second poll interval are not recorded.
+- Sessions shorter than one second are rounded down and may not be recorded.
 - Battery levels are whatever BlueZ exposes; some TWS earbuds report only one
   side or nothing at all.
 - The weekly summary is delivered through the DMS notification daemon and stays

@@ -230,6 +230,15 @@ PluginComponent {
         return "bluetooth";
     }
 
+    function advanceClock() {
+        nowMs = Date.now();
+        var secondsVisible = primaryLiveSeconds < 60
+                || (primaryPlayingSeconds > 0 && primaryPlayingSeconds < 60);
+        var nextInterval = secondsVisible ? 1000 : (60000 - (Date.now() % 60000) + 50);
+        if (Math.abs(nowTimer.interval - nextInterval) > 500)
+            nowTimer.interval = nextInterval;
+    }
+
     function keyFor(device) {
         return String(device && device.address ? device.address : "").toUpperCase();
     }
@@ -280,11 +289,11 @@ PluginComponent {
     }
 
     Timer {
+        id: nowTimer
         interval: 1000
         repeat: true
         running: root.hasConnected
-        triggeredOnStart: true
-        onTriggered: root.nowMs = Date.now()
+        onTriggered: root.advanceClock()
     }
 
     Timer {

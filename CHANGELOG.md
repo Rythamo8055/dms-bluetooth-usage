@@ -2,6 +2,17 @@
 
 All notable changes to Bluetooth Usage are documented here.
 
+## 1.1.3 — 2026-11-10
+
+### Changed
+
+- Bluetooth connect/disconnect evaluation is now driven by per-device signals.
+  The repeating timer is a 30-second heartbeat while a session is open and
+  tightens to 2 seconds only while a disconnect grace period is pending.
+- The bar clock ticks every second only while a visible counter is below one
+  minute, then aligns to the minute boundary.
+- The probe watchdog is a one-shot timeout armed only while a probe is running.
+
 ## 1.1.2 — 2026-11-10
 
 ### Fixed
