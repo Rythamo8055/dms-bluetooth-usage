@@ -27,6 +27,7 @@ PluginComponent {
     readonly property bool trackAllDevices: pluginData.trackAllDevices === true
     readonly property bool hideWhenIdle: pluginData.hideWhenIdle === true
     readonly property bool showBattery: pluginData.showBattery !== false
+    readonly property bool showListeningInBar: pluginData.showListeningInBar !== false
     readonly property string statePath: StandardPaths.writableLocation(StandardPaths.GenericStateLocation) + "/dms/bluetooth-usage.json"
 
     readonly property bool anyBluetoothConnected: BluetoothService.connected
@@ -93,6 +94,26 @@ PluginComponent {
         return root.primaryRecord ? BtUsage.totalSeconds(root.primaryRecord, root.nowMs) : 0;
     }
 
+    readonly property double primaryPlayingSeconds: {
+        var tick = root.nowMs;
+        return root.primaryRecord ? BtUsage.livePlaying(root.primaryRecord, root.nowMs) : 0;
+    }
+
+    readonly property double primaryIdleSeconds: {
+        var tick = root.nowMs;
+        return Math.max(0, root.primaryLiveSeconds - root.primaryPlayingSeconds);
+    }
+
+    readonly property double primaryPlayingToday: {
+        var tick = root.nowMs;
+        return root.primaryRecord ? BtUsage.playingToday(root.primaryRecord, root.nowMs) : 0;
+    }
+
+    readonly property double primaryIdleToday: {
+        var tick = root.nowMs;
+        return root.primaryRecord ? BtUsage.idleToday(root.primaryRecord, root.nowMs) : 0;
+    }
+
     readonly property int primaryBattery: {
         var tick = root.nowMs;
         var device = root.primaryDevice;
@@ -116,6 +137,22 @@ PluginComponent {
         var total = 0;
         for (var key in root.usage.devices)
             total += BtUsage.liveToday(root.usage.devices[key], root.nowMs);
+        return total;
+    }
+
+    readonly property double todayPlayingTotal: {
+        var tick = root.nowMs;
+        var total = 0;
+        for (var key in root.usage.devices)
+            total += BtUsage.playingToday(root.usage.devices[key], root.nowMs);
+        return total;
+    }
+
+    readonly property double livePlayingTodayTotal: {
+        var tick = root.nowMs;
+        var total = 0;
+        for (var key in root.usage.devices)
+            total += BtUsage.livePlayingToday(root.usage.devices[key], root.nowMs);
         return total;
     }
 
@@ -173,6 +210,20 @@ PluginComponent {
             return "";
         return root.primaryBattery >= 0 ? root.primaryBattery + "%" : "";
     }
+    readonly property string barListeningText: {
+        var tick = root.nowMs;
+        if (!root.showListeningInBar)
+            return "";
+        if (root.hasConnected) {
+            if (root.primaryPlayingSeconds >= 1)
+                return BtUsage.duration(root.primaryPlayingSeconds, true);
+            return "idle";
+        }
+        return root.usageLoaded && root.todayPlayingTotal >= 1 ? BtUsage.duration(root.todayPlayingTotal, true) : "";
+    }
+    readonly property color barListeningColor: root.hasConnected && root.primaryPlayingSeconds >= 1
+        ? Theme.primary
+        : Theme.surfaceVariantText
     readonly property color barAccent: root.hasConnected ? Theme.primary : Theme.surfaceVariantText
     readonly property string barIcon: {
         if (root.primaryDevice)
@@ -295,6 +346,14 @@ PluginComponent {
                 }
 
                 StyledText {
+                    text: root.barListeningText.length > 0 ? "\u00b7 " + root.barListeningText : ""
+                    visible: text.length > 0
+                    font.pixelSize: Theme.fontSizeSmall
+                    color: root.barListeningColor
+                    anchors.verticalCenter: parent.verticalCenter
+                }
+
+                StyledText {
                     text: root.barBattery
                     visible: text.length > 0
                     font.pixelSize: Theme.fontSizeSmall
@@ -343,5 +402,5 @@ PluginComponent {
     }
 
     popoutWidth: 400
-    popoutHeight: 540
+    popoutHeight: 620
 }

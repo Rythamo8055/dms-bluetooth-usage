@@ -69,6 +69,22 @@ function liveToday(record, now) {
     return (now - start) / 1000;
 }
 
+// Actual audio output time, as opposed to merely being connected.
+function livePlaying(record, now) {
+    if (!record || !record.playingStart)
+        return 0;
+    return Math.max(0, (now - record.playingStart) / 1000);
+}
+
+function livePlayingToday(record, now) {
+    if (!record || !record.playingStart)
+        return 0;
+    var start = Math.max(record.playingStart, dayStart(now));
+    if (now <= start)
+        return 0;
+    return (now - start) / 1000;
+}
+
 function todaySeconds(record, now) {
     if (!record)
         return 0;
@@ -76,10 +92,31 @@ function todaySeconds(record, now) {
     return stored + liveToday(record, now);
 }
 
+function playingToday(record, now) {
+    if (!record)
+        return 0;
+    var stored = record.playingDays ? (record.playingDays[dateKey(now)] || 0) : 0;
+    return stored + livePlayingToday(record, now);
+}
+
 function totalSeconds(record, now) {
     if (!record)
         return 0;
     return (record.totalSeconds || 0) + liveSeconds(record, now);
+}
+
+function playingTotal(record, now) {
+    if (!record)
+        return 0;
+    return (record.playingSeconds || 0) + livePlaying(record, now);
+}
+
+function idleToday(record, now) {
+    return Math.max(0, todaySeconds(record, now) - playingToday(record, now));
+}
+
+function idleTotal(record, now) {
+    return Math.max(0, totalSeconds(record, now) - playingTotal(record, now));
 }
 
 function lastSessionSeconds(record) {
@@ -117,20 +154,25 @@ function buildWeek(devices, now, includeLive) {
         var start = day.getTime();
         var key = dateKey(start);
         var seconds = 0;
+        var playing = 0;
 
         for (var address in devices) {
             var record = devices[address];
             if (!record)
                 continue;
             seconds += record.days ? (record.days[key] || 0) : 0;
-            if (includeLive && offset === 0)
+            playing += record.playingDays ? (record.playingDays[key] || 0) : 0;
+            if (includeLive && offset === 0) {
                 seconds += liveToday(record, now);
+                playing += livePlayingToday(record, now);
+            }
         }
 
         result.push({
             key: key,
             label: ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][day.getDay()],
             seconds: seconds,
+            playingSeconds: playing,
             isToday: offset === 0
         });
     }

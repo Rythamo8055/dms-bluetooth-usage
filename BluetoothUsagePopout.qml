@@ -19,8 +19,13 @@ PopoutComponent {
     readonly property var devices: pluginRoot ? pluginRoot.deviceList : []
     readonly property var week: pluginRoot ? pluginRoot.weekData : []
     readonly property double todaySeconds: pluginRoot ? pluginRoot.todayTotal : 0
+    readonly property double todayPlaying: pluginRoot ? pluginRoot.todayPlayingTotal : 0
     readonly property double primaryLive: pluginRoot ? pluginRoot.primaryLiveSeconds : 0
+    readonly property double primaryPlaying: pluginRoot ? pluginRoot.primaryPlayingSeconds : 0
+    readonly property double primaryIdle: pluginRoot ? pluginRoot.primaryIdleSeconds : 0
     readonly property double primaryToday: pluginRoot ? pluginRoot.primaryTodaySeconds : 0
+    readonly property double primaryPlayingToday: pluginRoot ? pluginRoot.primaryPlayingToday : 0
+    readonly property double primaryIdleToday: pluginRoot ? pluginRoot.primaryIdleToday : 0
     readonly property double primaryTotal: pluginRoot ? pluginRoot.primaryTotalSeconds : 0
     readonly property int primaryBattery: pluginRoot ? pluginRoot.primaryBattery : -1
     readonly property string primaryName: pluginRoot && pluginRoot.primaryDevice
@@ -34,6 +39,7 @@ PopoutComponent {
     }
 
     readonly property double weekLive: pluginRoot ? pluginRoot.liveTodayTotal : 0
+    readonly property double weekLivePlaying: pluginRoot ? pluginRoot.livePlayingTodayTotal : 0
 
     readonly property real weekMax: {
         var max = 1;
@@ -52,6 +58,15 @@ PopoutComponent {
         return total;
     }
 
+    readonly property double weekPlayingTotal: {
+        var total = weekLivePlaying;
+        for (var i = 0; i < week.length; i++)
+            total += week[i].playingSeconds || 0;
+        return total;
+    }
+
+    readonly property double weekIdleTotal: Math.max(0, weekTotal - weekPlayingTotal)
+
     headerText: "Bluetooth usage"
     detailsText: {
         if (!loaded)
@@ -59,7 +74,8 @@ PopoutComponent {
         var parts = [];
         if (connected)
             parts.push(connectedCount + (connectedCount === 1 ? " device connected" : " devices connected"));
-        parts.push(BtUsage.duration(todaySeconds) + " today");
+        parts.push(BtUsage.duration(todaySeconds) + " connected today");
+        parts.push(BtUsage.duration(todayPlaying) + " listening today");
         if (trackingSince.length > 0)
             parts.push("since " + trackingSince);
         return parts.join(" \u00b7 ");
@@ -139,11 +155,22 @@ PopoutComponent {
 
                         StyledText {
                             width: parent.width
+                            text: root.connected
+                                ? "Listening " + BtUsage.duration(root.primaryPlaying) + " \u00b7 Idle " + BtUsage.duration(root.primaryIdle)
+                                : "Connected today " + BtUsage.duration(root.todaySeconds) + " \u00b7 Listening " + BtUsage.duration(root.todayPlaying)
+                            font.pixelSize: Theme.fontSizeSmall
+                            font.weight: Theme.fontWeightMedium
+                            color: root.connected ? Theme.primary : Theme.surfaceVariantText
+                            wrapMode: Text.WordWrap
+                        }
+
+                        StyledText {
+                            width: parent.width
                             text: {
                                 if (!root.connected)
-                                    return root.todaySeconds > 0 ? "Total time today \u00b7 " + BtUsage.duration(root.weekTotal) + " this week"
+                                    return root.todaySeconds > 0 ? "This week " + BtUsage.duration(root.weekTotal) + " connected \u00b7 " + BtUsage.duration(root.weekPlayingTotal) + " listening"
                                                                 : "Connect your earbuds or headset to start tracking";
-                                var text = "Today " + BtUsage.duration(root.primaryToday) + " \u00b7 All time " + BtUsage.duration(root.primaryTotal);
+                                var text = "Today " + BtUsage.duration(root.primaryToday) + " connected \u00b7 " + BtUsage.duration(root.primaryPlayingToday) + " listening";
                                 if (root.primaryBattery >= 0)
                                     text += " \u00b7 Battery " + root.primaryBattery + "%";
                                 return text;
@@ -206,9 +233,15 @@ PopoutComponent {
                                     model: root.week
 
                                     Column {
+                                        id: dayColumn
+
                                         width: (parent.width - Theme.spacingXS * 6) / 7
                                         height: parent.height
                                         spacing: Theme.spacingXS
+
+                                        readonly property double connectedSeconds: modelData.seconds + (modelData.isToday ? root.weekLive : 0)
+                                        readonly property double playingSeconds: Math.min(dayColumn.connectedSeconds,
+                                                                                            (modelData.playingSeconds || 0) + (modelData.isToday ? root.weekLivePlaying : 0))
 
                                         Item {
                                             width: parent.width
@@ -219,16 +252,25 @@ PopoutComponent {
                                                 width: parent.width
                                                 height: parent.height
                                                 radius: Theme.cornerRadiusSmall
-                                                color: Theme.withAlpha(Theme.primary, 0.07)
+                                                color: Theme.withAlpha(Theme.primary, 0.06)
                                             }
 
                                             Rectangle {
                                                 anchors.bottom: parent.bottom
                                                 width: parent.width
-                                                height: Math.max((modelData.seconds + (modelData.isToday ? root.weekLive : 0)) > 0 ? 3 : 0,
-                                                                 ((modelData.seconds + (modelData.isToday ? root.weekLive : 0)) / root.weekMax) * parent.height)
+                                                height: Math.max(dayColumn.connectedSeconds > 0 ? 3 : 0,
+                                                                 (dayColumn.connectedSeconds / root.weekMax) * parent.height)
                                                 radius: Theme.cornerRadiusSmall
-                                                color: modelData.isToday ? Theme.primary : Theme.withAlpha(Theme.primary, 0.45)
+                                                color: Theme.withAlpha(Theme.primary, modelData.isToday ? 0.45 : 0.28)
+                                            }
+
+                                            Rectangle {
+                                                anchors.bottom: parent.bottom
+                                                width: parent.width
+                                                height: Math.max(dayColumn.playingSeconds > 0 ? 3 : 0,
+                                                                 (dayColumn.playingSeconds / root.weekMax) * parent.height)
+                                                radius: Theme.cornerRadiusSmall
+                                                color: modelData.isToday ? Theme.primary : Theme.withAlpha(Theme.primary, 0.8)
                                             }
                                         }
 
@@ -240,6 +282,49 @@ PopoutComponent {
                                             color: modelData.isToday ? Theme.primary : Theme.surfaceVariantText
                                         }
                                     }
+                                }
+                            }
+                        }
+
+                        Row {
+                            width: parent.width
+                            spacing: Theme.spacingM
+
+                            Row {
+                                spacing: Theme.spacingXS
+
+                                Rectangle {
+                                    width: 8
+                                    height: 8
+                                    radius: 4
+                                    color: Theme.withAlpha(Theme.primary, 0.45)
+                                    anchors.verticalCenter: parent.verticalCenter
+                                }
+
+                                StyledText {
+                                    text: "Connected " + BtUsage.duration(root.weekTotal)
+                                    font.pixelSize: Theme.fontSizeXSmall
+                                    color: Theme.surfaceVariantText
+                                    anchors.verticalCenter: parent.verticalCenter
+                                }
+                            }
+
+                            Row {
+                                spacing: Theme.spacingXS
+
+                                Rectangle {
+                                    width: 8
+                                    height: 8
+                                    radius: 4
+                                    color: Theme.primary
+                                    anchors.verticalCenter: parent.verticalCenter
+                                }
+
+                                StyledText {
+                                    text: "Listening " + BtUsage.duration(root.weekPlayingTotal)
+                                    font.pixelSize: Theme.fontSizeXSmall
+                                    color: Theme.surfaceVariantText
+                                    anchors.verticalCenter: parent.verticalCenter
                                 }
                             }
                         }
@@ -263,17 +348,20 @@ PopoutComponent {
                         id: deviceCard
 
                         width: contentColumn.width
-                        height: 76
+                        height: 88
                         radius: Theme.cornerRadius
                         color: deviceCard.isLive ? Theme.surfaceContainerHigh : Theme.surfaceContainer
                         border.width: deviceCard.isLive ? 1 : 0
                         border.color: Theme.withAlpha(Theme.primary, 0.2)
 
                         readonly property bool isLive: root.pluginRoot ? root.pluginRoot.isConnectedByAddress(modelData.address) : false
+                        readonly property bool isPlaying: record ? record.playingStart > 0 : false
                         readonly property double now: root.pluginRoot ? root.pluginRoot.nowMs : Date.now()
                         readonly property var record: modelData.record
                         readonly property double todaySeconds: record ? BtUsage.todaySeconds(record, deviceCard.now) : 0
+                        readonly property double playingToday: record ? BtUsage.playingToday(record, deviceCard.now) : 0
                         readonly property double totalSeconds: record ? BtUsage.totalSeconds(record, deviceCard.now) : 0
+                        readonly property double playingTotal: record ? BtUsage.playingTotal(record, deviceCard.now) : 0
                         readonly property double sessionSeconds: record ? (record.activeStart ? BtUsage.liveSeconds(record, deviceCard.now) : (record.lastSessionSeconds || 0)) : 0
                         readonly property int battery: root.pluginRoot ? root.pluginRoot.batteryForAddress(modelData.address) : -1
 
@@ -312,8 +400,10 @@ PopoutComponent {
                                 StyledText {
                                     width: parent.width
                                     text: {
-                                        if (deviceCard.isLive)
-                                            return "Connected now" + (deviceCard.battery >= 0 ? " \u00b7 " + deviceCard.battery + "%" : "");
+                                        if (deviceCard.isLive) {
+                                            var state = deviceCard.isPlaying ? "Playing now" : "Connected \u00b7 idle";
+                                            return state + (deviceCard.battery >= 0 ? " \u00b7 " + deviceCard.battery + "%" : "");
+                                        }
                                         if (!modelData.lastDisconnected)
                                             return "No sessions yet";
                                         return "Last used " + BtUsage.relativeTime(modelData.lastDisconnected, deviceCard.now)
@@ -327,6 +417,7 @@ PopoutComponent {
                                 StyledText {
                                     width: parent.width
                                     text: "All time " + BtUsage.duration(deviceCard.totalSeconds)
+                                         + " \u00b7 " + BtUsage.duration(deviceCard.playingTotal) + " listening"
                                     font.pixelSize: Theme.fontSizeXSmall
                                     color: Theme.surfaceVariantText
                                     elide: Text.ElideRight
@@ -351,6 +442,13 @@ PopoutComponent {
                                     horizontalAlignment: Text.AlignRight
                                     font.pixelSize: Theme.fontSizeXSmall
                                     color: Theme.surfaceVariantText
+                                }
+
+                                StyledText {
+                                    text: BtUsage.duration(deviceCard.playingToday) + " listening"
+                                    horizontalAlignment: Text.AlignRight
+                                    font.pixelSize: Theme.fontSizeXSmall
+                                    color: deviceCard.isPlaying ? Theme.primary : Theme.surfaceVariantText
                                 }
                             }
                         }

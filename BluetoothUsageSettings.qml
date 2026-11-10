@@ -1,4 +1,5 @@
 import QtQuick
+import Quickshell
 import qs.Common
 import qs.DCommon.Widgets
 import qs.Widgets
@@ -19,6 +20,13 @@ PluginSettings {
         settingKey: "showBattery"
         label: "Show battery percentage in the bar"
         description: "Uses the battery level reported by BlueZ. Not every headset exposes it."
+        defaultValue: true
+    }
+
+    ToggleSetting {
+        settingKey: "showListeningInBar"
+        label: "Show listening time in the bar"
+        description: "Adds the actual audio-output time next to the connected time, for example: 23m · 18m."
         defaultValue: true
     }
 
@@ -59,6 +67,63 @@ PluginSettings {
 
     StyledText {
         width: parent.width
+        text: "Weekly summary"
+        font.pixelSize: Theme.fontSizeLarge
+        font.weight: Theme.fontWeightMedium
+        color: Theme.surfaceText
+        topPadding: Theme.spacingS
+    }
+
+    ToggleSetting {
+        settingKey: "weeklySummary"
+        label: "Send a weekly summary notification"
+        description: "Connected, listening and idle time for the previous 7 days, plus your top device."
+        defaultValue: true
+    }
+
+    SelectionSetting {
+        settingKey: "summaryDay"
+        label: "Summary day"
+        description: "When the weekly notification is delivered."
+        options: [
+            { label: "Monday", value: "1" },
+            { label: "Tuesday", value: "2" },
+            { label: "Wednesday", value: "3" },
+            { label: "Thursday", value: "4" },
+            { label: "Friday", value: "5" },
+            { label: "Saturday", value: "6" },
+            { label: "Sunday", value: "0" }
+        ]
+        defaultValue: "1"
+    }
+
+    SelectionSetting {
+        settingKey: "summaryHour"
+        label: "Summary time"
+        description: "Local time. If the shell is off at that moment, the summary is shown the next time DMS starts."
+        options: [
+            { label: "08:00", value: "8" },
+            { label: "09:00", value: "9" },
+            { label: "10:00", value: "10" },
+            { label: "12:00", value: "12" },
+            { label: "18:00", value: "18" },
+            { label: "20:00", value: "20" },
+            { label: "22:00", value: "22" }
+        ]
+        defaultValue: "9"
+    }
+
+    DButton {
+        text: "Send weekly summary now"
+        iconName: "notifications"
+        variant: "tonal"
+        onClicked: {
+            Quickshell.execDetached(["dms", "ipc", "call", "btUsage", "summary"]);
+        }
+    }
+
+    StyledText {
+        width: parent.width
         text: "Data"
         font.pixelSize: Theme.fontSizeLarge
         font.weight: Theme.fontWeightMedium
@@ -68,7 +133,7 @@ PluginSettings {
 
     StyledText {
         width: parent.width
-        text: "Sessions are stored locally in ~/.local/state/dms/bluetooth-usage.json. The file survives shell restarts and records at most three months of daily history and the last 60 sessions per device."
+        text: "Sessions are stored locally in ~/.local/state/dms/bluetooth-usage.json. Connected time and actual listening time are tracked separately; the file survives shell restarts and records at most three months of daily history and the last 60 sessions per device."
         font.pixelSize: Theme.fontSizeSmall
         color: Theme.surfaceVariantText
         wrapMode: Text.WordWrap

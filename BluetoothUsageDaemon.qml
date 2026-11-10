@@ -21,10 +21,17 @@ PluginComponent {
         version: 1,
         createdAt: 0,
         updatedAt: 0,
+        lastWeeklySummary: 0,
         devices: {}
     })
     property bool storeLoaded: false
     property var pendingDisconnects: ({})
+    property var playingAddresses: ({})
+    property bool audioProbeAvailable: false
+    property bool audioProbeInFlight: false
+    property double audioProbeStartedAt: 0
+    property bool probeErrorLogged: false
+    property string summaryBody: ""
     property double lastHeartbeat: 0
     property double lastResetAt: 0
     property double startedAt: Date.now()
@@ -33,6 +40,15 @@ PluginComponent {
     readonly property bool trackAllDevices: pluginData.trackAllDevices === true
     readonly property bool notifyOnConnect: pluginData.notifyOnConnect === true
     readonly property bool notifyOnDisconnect: pluginData.notifyOnDisconnect === true
+    readonly property bool weeklySummaryEnabled: pluginData.weeklySummary !== false
+    readonly property int summaryDay: {
+        var value = parseInt(pluginData.summaryDay);
+        return isNaN(value) ? 1 : Math.max(0, Math.min(6, value));
+    }
+    readonly property int summaryHour: {
+        var value = parseInt(pluginData.summaryHour);
+        return isNaN(value) ? 9 : Math.max(0, Math.min(23, value));
+    }
 
     // A2DP/HFP profiles can drop and reconnect for a few seconds while a
     // headset switches profiles. Anything shorter than this stays one session.
@@ -52,6 +68,7 @@ PluginComponent {
             version: 1,
             createdAt: now,
             updatedAt: now,
+            lastWeeklySummary: now,
             devices: {}
         };
     }
@@ -60,14 +77,18 @@ PluginComponent {
         if (!record || typeof record !== "object")
             record = {};
 
-        record.address = record.address || address;
+        record.address = address || record.address;
         record.name = record.name || address;
         record.icon = record.icon || "bluetooth";
         record.totalSeconds = Number(record.totalSeconds) || 0;
+        record.playingSeconds = Number(record.playingSeconds) || 0;
         record.days = record.days && typeof record.days === "object" ? record.days : {};
+        record.playingDays = record.playingDays && typeof record.playingDays === "object" ? record.playingDays : {};
         record.sessions = Array.isArray(record.sessions) ? record.sessions : [];
         record.activeStart = Number(record.activeStart) || 0;
+        record.playingStart = Number(record.playingStart) || 0;
         record.lastSeen = Number(record.lastSeen) || 0;
+        record.lastPlayingSeen = Number(record.lastPlayingSeen) || 0;
         record.lastConnected = Number(record.lastConnected) || 0;
         record.lastDisconnected = Number(record.lastDisconnected) || 0;
         record.lastSessionSeconds = Number(record.lastSessionSeconds) || 0;
@@ -104,6 +125,7 @@ PluginComponent {
             version: 1,
             createdAt: Number(parsed.createdAt) || Date.now(),
             updatedAt: Number(parsed.updatedAt) || 0,
+            lastWeeklySummary: Number(parsed.lastWeeklySummary) || Date.now(),
             devices: devices
         };
         storeLoaded = true;
@@ -145,10 +167,14 @@ PluginComponent {
             name: displayName(device),
             icon: BluetoothService.getDeviceIcon(device),
             totalSeconds: 0,
+            playingSeconds: 0,
             days: {},
+            playingDays: {},
             sessions: [],
             activeStart: 0,
+            playingStart: 0,
             lastSeen: 0,
+            lastPlayingSeen: 0,
             lastConnected: 0,
             lastDisconnected: 0,
             lastSessionSeconds: 0,
@@ -156,7 +182,7 @@ PluginComponent {
         }, key);
     }
 
-    function addToDays(record, start, end) {
+    function addToBuckets(buckets, start, end) {
         var cursor = start;
         var guard = 0;
         while (cursor < end && guard < 40) {
@@ -165,11 +191,21 @@ PluginComponent {
             var seconds = (chunkEnd - cursor) / 1000;
             if (seconds > 0) {
                 var key = BtUsage.dateKey(cursor);
-                record.days[key] = (record.days[key] || 0) + seconds;
+                buckets[key] = (buckets[key] || 0) + seconds;
             }
             cursor = chunkEnd;
             guard++;
         }
+    }
+
+    function addToDays(record, start, end) {
+        addToBuckets(record.days, start, end);
+    }
+
+    function addToPlayingDays(record, start, end) {
+        if (!record.playingDays)
+            record.playingDays = {};
+        addToBuckets(record.playingDays, start, end);
     }
 
     function prune(record) {
@@ -178,8 +214,31 @@ PluginComponent {
         while (keys.length > 100)
             delete record.days[keys.shift()];
 
+        var playingKeys = Object.keys(record.playingDays).sort();
+        while (playingKeys.length > 100)
+            delete record.playingDays[playingKeys.shift()];
+
         if (record.sessions.length > 60)
             record.sessions = record.sessions.slice(record.sessions.length - 60);
+    }
+
+    function closePlaying(record, endAt, now) {
+        var start = record.playingStart;
+        if (!start) {
+            record.playingStart = 0;
+            return 0;
+        }
+
+        var end = Math.max(start, Math.min(endAt || now, now));
+        var seconds = Math.round((end - start) / 1000);
+        if (seconds > 0) {
+            addToPlayingDays(record, start, end);
+            record.playingSeconds = (record.playingSeconds || 0) + seconds;
+        }
+
+        record.playingStart = 0;
+        record.lastPlayingSeen = end;
+        return seconds;
     }
 
     function closeSession(record, endAt, now) {
@@ -190,6 +249,12 @@ PluginComponent {
         }
 
         var end = Math.max(start, Math.min(endAt || now, now));
+
+        // Playback cannot survive a disconnect; stop the listening interval
+        // before closing the connected session.
+        if (record.playingStart)
+            closePlaying(record, record.lastPlayingSeen || end, now);
+
         var seconds = Math.round((end - start) / 1000);
 
         if (seconds > 0) {
@@ -254,6 +319,7 @@ PluginComponent {
                 continue;
 
             var liveDevice = connectedByKey[address];
+            var isPlaying = audioProbeAvailable && playingAddresses[address] === true;
             if (liveDevice) {
                 record.lastSeen = now;
                 record.name = displayName(liveDevice);
@@ -264,7 +330,25 @@ PluginComponent {
                     delete pendingDisconnects[address];
                     dirty = true;
                 }
+
+                if (audioProbeAvailable) {
+                    if (isPlaying) {
+                        if (!record.playingStart) {
+                            record.playingStart = now;
+                            dirty = true;
+                        }
+                        record.lastPlayingSeen = now;
+                    } else if (record.playingStart) {
+                        closePlaying(record, record.lastPlayingSeen || now, now);
+                        dirty = true;
+                    }
+                }
             } else {
+                if (record.playingStart) {
+                    closePlaying(record, record.lastPlayingSeen || record.lastSeen || now, now);
+                    dirty = true;
+                }
+
                 if (!pendingDisconnects[address])
                     pendingDisconnects[address] = now;
 
@@ -297,6 +381,11 @@ PluginComponent {
                     existing.battery = Math.round(device.battery * 100);
                 dirty = true;
 
+                if (audioProbeAvailable && playingAddresses[key] === true) {
+                    existing.playingStart = now;
+                    existing.lastPlayingSeen = now;
+                }
+
                 if (!firstTick && notifyOnConnect) {
                     ToastService.showInfo(I18n.trFor("bluetoothUsage", "Bluetooth connected"),
                                           existing.name + " \u00b7 tracking session");
@@ -310,6 +399,8 @@ PluginComponent {
             for (var activeAddress in store.devices) {
                 if (store.devices[activeAddress].activeStart)
                     store.devices[activeAddress].lastSeen = now;
+                if (store.devices[activeAddress].playingStart)
+                    store.devices[activeAddress].lastPlayingSeen = now;
             }
             lastHeartbeat = now;
             dirty = true;
@@ -345,6 +436,7 @@ PluginComponent {
             version: 1,
             createdAt: now,
             updatedAt: now,
+            lastWeeklySummary: now,
             devices: devices
         };
         pendingDisconnects = {};
@@ -358,21 +450,30 @@ PluginComponent {
         var result = {
             updatedAt: store.updatedAt,
             createdAt: store.createdAt,
+            audioProbeAvailable: root.audioProbeAvailable,
             todaySeconds: 0,
+            todayPlayingSeconds: 0,
             devices: []
         };
 
         for (var address in store.devices) {
             var record = store.devices[address];
             var today = BtUsage.todaySeconds(record, now);
+            var playingToday = BtUsage.playingToday(record, now);
             result.todaySeconds += today;
+            result.todayPlayingSeconds += playingToday;
             result.devices.push({
                 address: address,
                 name: record.name,
                 connected: !!record.activeStart,
                 sessionSeconds: Math.round(BtUsage.liveSeconds(record, now)),
+                playingSessionSeconds: Math.round(BtUsage.livePlaying(record, now)),
                 todaySeconds: Math.round(today),
+                playingTodaySeconds: Math.round(playingToday),
+                idleTodaySeconds: Math.round(BtUsage.idleToday(record, now)),
                 totalSeconds: Math.round(BtUsage.totalSeconds(record, now)),
+                playingTotalSeconds: Math.round(BtUsage.playingTotal(record, now)),
+                idleTotalSeconds: Math.round(BtUsage.idleTotal(record, now)),
                 lastConnected: record.lastConnected,
                 lastDisconnected: record.lastDisconnected
             });
@@ -386,6 +487,151 @@ PluginComponent {
         return JSON.stringify(result);
     }
 
+    function handleSinks(text) {
+        var data = null;
+        try {
+            data = JSON.parse(text);
+        } catch (error) {
+            return;
+        }
+        if (!data || !Array.isArray(data.sinks) || !Array.isArray(data.sink_inputs))
+            return;
+
+        var addressBySink = {};
+        for (var i = 0; i < data.sinks.length; i++) {
+            var sink = data.sinks[i];
+            if (!sink)
+                continue;
+            var properties = sink.properties || {};
+            var sinkName = String(sink.name || "");
+            var bus = properties["device.bus"] || "";
+            if (bus !== "bluetooth" && sinkName.indexOf("bluez") !== 0)
+                continue;
+
+            var address = String(properties["api.bluez5.address"] || properties["device.string"] || "").toUpperCase();
+            if (!address) {
+                var match = sinkName.match(/bluez_output\.([0-9a-fA-F_]+)/);
+                if (match)
+                    address = match[1].replace(/_/g, ":").toUpperCase();
+            }
+            if (address)
+                addressBySink[sink.index] = address;
+        }
+
+        var playing = {};
+        for (var j = 0; j < data.sink_inputs.length; j++) {
+            var input = data.sink_inputs[j];
+            if (!input || input.corked === true || input.mute === true)
+                continue;
+            var playingAddress = addressBySink[input.sink];
+            if (playingAddress)
+                playing[playingAddress] = true;
+        }
+
+        playingAddresses = playing;
+        audioProbeAvailable = true;
+        probeErrorLogged = false;
+    }
+
+    // ------------------------------------------------------------------
+    // Weekly summary
+    // ------------------------------------------------------------------
+
+    function lastScheduledAt(now) {
+        var day = summaryDay;
+        var hour = summaryHour;
+        var date = new Date(now);
+        date.setHours(hour, 0, 0, 0);
+        var diff = (date.getDay() - day + 7) % 7;
+        date.setDate(date.getDate() - diff);
+        if (date.getTime() > now)
+            date.setDate(date.getDate() - 7);
+        return date.getTime();
+    }
+
+    function weekSummary(now) {
+        var connected = 0;
+        var playing = 0;
+        var topName = "";
+        var topSeconds = 0;
+        var todayStart = BtUsage.dayStart(now);
+
+        for (var address in store.devices) {
+            var record = store.devices[address];
+            if (!record)
+                continue;
+
+            var deviceConnected = 0;
+            var devicePlaying = 0;
+            for (var offset = 0; offset < 7; offset++) {
+                var day = new Date(todayStart);
+                day.setDate(day.getDate() - offset);
+                var key = BtUsage.dateKey(day.getTime());
+                deviceConnected += record.days ? (record.days[key] || 0) : 0;
+                devicePlaying += record.playingDays ? (record.playingDays[key] || 0) : 0;
+            }
+            deviceConnected += BtUsage.liveToday(record, now);
+            devicePlaying += BtUsage.livePlayingToday(record, now);
+
+            connected += deviceConnected;
+            playing += devicePlaying;
+            if (deviceConnected > topSeconds) {
+                topSeconds = deviceConnected;
+                topName = record.name;
+            }
+        }
+
+        return {
+            connected: connected,
+            playing: playing,
+            idle: Math.max(0, connected - playing),
+            topName: topName,
+            topSeconds: topSeconds
+        };
+    }
+
+    function summaryText(now) {
+        var summary = weekSummary(now);
+        if (summary.connected < 60)
+            return "No Bluetooth usage recorded in the last 7 days.";
+
+        var lines = [
+            "Last 7 days",
+            "Connected: " + BtUsage.duration(summary.connected),
+            "Listening: " + BtUsage.duration(summary.playing),
+            "Idle: " + BtUsage.duration(summary.idle)
+        ];
+        if (summary.topName)
+            lines.push("Top device: " + summary.topName + " (" + BtUsage.duration(summary.topSeconds) + ")");
+        return lines.join("\n");
+    }
+
+    function sendSummary(body) {
+        if (!body || summaryProcess.running)
+            return false;
+        summaryBody = body;
+        summaryProcess.running = true;
+        return true;
+    }
+
+    function checkWeeklySummary() {
+        if (!storeLoaded || !weeklySummaryEnabled || summaryProcess.running)
+            return;
+
+        var now = Date.now();
+        var scheduled = lastScheduledAt(now);
+        var last = Number(store.lastWeeklySummary) || 0;
+        if (scheduled <= last)
+            return;
+
+        var summary = weekSummary(now);
+        store.lastWeeklySummary = now;
+        writeNow();
+
+        if (summary.connected >= 60)
+            sendSummary(summaryText(now));
+    }
+
     Timer {
         id: tickTimer
         interval: 2000
@@ -393,6 +639,74 @@ PluginComponent {
         running: root.storeLoaded
         triggeredOnStart: true
         onTriggered: root.tick()
+    }
+
+    // One `pactl` call covers both sinks and sink-inputs. A Bluetooth sink is
+    // "listening" only when an uncorked, unmuted stream is routed to it.
+    Timer {
+        id: audioProbeTimer
+        interval: 2000
+        repeat: true
+        running: root.storeLoaded
+        onTriggered: {
+            if (root.audioProbeInFlight && root.audioProbeStartedAt > 0
+                    && Date.now() - root.audioProbeStartedAt > 10000) {
+                root.audioProbeInFlight = false;
+                audioProbe.running = false;
+            }
+            if (!root.audioProbeInFlight) {
+                root.audioProbeInFlight = true;
+                root.audioProbeStartedAt = Date.now();
+                audioProbe.running = true;
+            }
+        }
+    }
+
+    Process {
+        id: audioProbe
+        command: ["pactl", "-f", "json", "list"]
+        running: false
+        stdout: StdioCollector {
+            onStreamFinished: root.handleSinks(text)
+        }
+        stderr: StdioCollector {}
+        onExited: (exitCode, exitStatus) => {
+            root.audioProbeInFlight = false;
+            if (exitCode !== 0 && !root.probeErrorLogged) {
+                root.probeErrorLogged = true;
+                root.log.warn("pactl is unavailable; listening time will not be recorded");
+            }
+        }
+    }
+
+    Timer {
+        id: weeklyStartupTimer
+        interval: 2500
+        repeat: false
+        running: root.storeLoaded
+        onTriggered: root.checkWeeklySummary()
+    }
+
+    Timer {
+        id: weeklyTimer
+        interval: 60000
+        repeat: true
+        running: root.storeLoaded
+        onTriggered: root.checkWeeklySummary()
+    }
+
+    Process {
+        id: summaryProcess
+        command: ["notify-send", "-a", "Bluetooth Usage", "-i", "audio-headset",
+                  "Bluetooth weekly summary", root.summaryBody]
+        running: false
+        stderr: StdioCollector {}
+        onExited: (exitCode, exitStatus) => {
+            if (exitCode !== 0) {
+                ToastService.showInfo(I18n.trFor("bluetoothUsage", "Bluetooth weekly summary"),
+                                      root.summaryBody);
+            }
+        }
     }
 
     FileView {
@@ -424,6 +738,16 @@ PluginComponent {
             return String(Math.round(status.todaySeconds));
         }
 
+        function summary(): string {
+            var body = root.summaryText(Date.now());
+            root.sendSummary(body);
+            return body;
+        }
+
+        function preview(): string {
+            return root.summaryText(Date.now());
+        }
+
         function clear(): string {
             root.clearAll();
             return "cleared";
@@ -444,7 +768,10 @@ PluginComponent {
         log.info("Tracking started", trackAllDevices ? "(all Bluetooth devices)" : "(audio devices only)");
     }
 
-    onPluginDataChanged: checkReset()
+    onPluginDataChanged: {
+        checkReset();
+        checkWeeklySummary();
+    }
 
     Component.onDestruction: {
         // Leave the session open so a DMS restart does not split it. The
@@ -455,6 +782,8 @@ PluginComponent {
         for (var address in store.devices) {
             if (store.devices[address].activeStart)
                 store.devices[address].lastSeen = now;
+            if (store.devices[address].playingStart)
+                store.devices[address].lastPlayingSeen = now;
         }
         writeNow();
     }
